@@ -1,0 +1,31 @@
+Based on the analysis and tool results, generate a comprehensive response.
+
+User Question: {{ user_question }}
+
+Conversation History:
+{{ conversation_history }}
+
+Tool Results:
+{% if tool_results %}
+{% for result in tool_results %}
+{{ result }}
+{% endfor %}
+{% else %}
+No tool results available
+{% endif %}
+
+Reasoning: {{ reasoning }}
+
+Language: {{ language }}
+
+User Profile:
+{% if user_profile %}
+Full Name: {{ user_profile.full_name or "Not provided" }}
+Birthday: {{ user_profile.birthday or "Not provided" }}
+Account Number: {{ user_profile.account_number or "Not provided" }}
+Language: {{ user_profile.language or "Not provided" }}
+{% else %}
+No user profile available
+{% endif %}
+
+Generate a clear, helpful response in {{ language }} that addresses the user's question based on the available information and tool results.
