@@ -1,9 +1,13 @@
 import json
 import os
+import requests
 from typing import Dict , List , Any , Optional, AsyncGenerator
 from .utils.logger import logger
-from .core.agent.prompt import render_prompt
+from .core.agent.config import UserInfo
+
+from .core.agent.prompt import chat_generation_system_prompt, build_langchain_template
 from .core.agent.states import WorkflowAgentState, WorkflowChatState, ReasoningStep, ToolCall, Plan, UseMemory
+from .core.agent.node import get_history, save_history
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, SystemMessagePromptTemplate
 from langgraph.prebuilt import ToolNode
@@ -13,7 +17,7 @@ from langgraph.graph import StateGraph, END
 from .core.agent.prompt import (
     memory_decision_prompt,
     reasoning_prompt,
-    chat_generation_prompt,
+    chat_generation_system_prompt,
 )
 
 from .core.agent.tools import (
@@ -22,10 +26,11 @@ from .core.agent.tools import (
     get_memory_context,
 )
 
-# Add missing analyze_user_question_prompt function
-def analyze_user_question_prompt(user_question: str, conversation_history: str = "", user_profile: dict = None) -> str:
-    """Analyze user question prompt - dummy implementation for testing"""
-    return reasoning_prompt(user_question, conversation_history, user_profile)
+
+
+# def analyze_user_question_prompt(user_question: str, conversation_history: str = "", user_profile: dict = None) -> str:
+#     """Analyze user question prompt - dummy implementation for testing"""
+#     return reasoning_prompt(user_question, conversation_history, user_profile)
 
 
 class ChatAgent:
@@ -34,16 +39,14 @@ class ChatAgent:
     Attributes:
         llm: The language model used by the agent.
         tools: A list of tools that the agent can use to perform tasks.
-        system_message: The system message that sets the context for the conversation.
         chat_history: A list of messages representing the chat history.
         state: The current state of the agent, including memory and workflow information.
     """
 
     def __init__(self, model_name:str , 
                  api_key:str , 
-                 tools:List[ToolNode] = None, 
-                 system_message:Optional[str]=None,
-                 base_url: str = None):
+                 base_url: str = None,
+                 user_info:UserInfo = None):
         
         if base_url:
             self.llm = ChatOpenAI(
@@ -62,6 +65,7 @@ class ChatAgent:
             }
         
         self.logger = logger
+        self.user_info = user_info
         self.graph = self._create_graph()
         self.graph_without_generation = self._create_graph_without_generation()
         
@@ -119,10 +123,43 @@ class ChatAgent:
         """Decide if memory is needed"""
         try:
             user_question = state.get("user_question", "")
+            user_profile = state.get("user_profile", {})
             memory_conversation = state.get("memory_conversation")
             
             self.logger.info(f"🔍 MEMORY DECISION NODE:")
             self.logger.info(f"   Input: {user_question}")
+            
+            # Load conversation history from memory if user_id and session_id are available
+            user_id = user_profile.get("user_id")
+            session_id = user_profile.get("session_id")
+            
+            self.logger.info(f"   User profile: {user_profile}")
+            if user_id and session_id:
+                # Load conversation history from encrypted memory
+                import asyncio
+                try:
+                    if asyncio.iscoroutinefunction(get_history):
+                        # If we're in an async context, use await
+                        try:
+                            loop = asyncio.get_event_loop()
+                            if loop.is_running():
+                                # Create a new task if loop is already running
+                                task = asyncio.create_task(get_history(user_id, session_id))
+                                memory_conversation = loop.run_until_complete(task)
+                            else:
+                                memory_conversation = loop.run_until_complete(get_history(user_id, session_id))
+                        except RuntimeError:
+                            # If no event loop, create one
+                            memory_conversation = asyncio.run(get_history(user_id, session_id))
+                    else:
+                        memory_conversation = get_history(user_id, session_id)
+                    
+                    self.logger.info(f"   Loaded memory conversation: {memory_conversation}")
+                    state["memory_conversation"] = memory_conversation
+                    self.logger.info(f"   Using user_id: {user_id}, session_id: {session_id}")
+                except Exception as e:
+                    self.logger.error(f"   Error loading memory: {e}")
+                    memory_conversation = None
             
             # Use LLM to make memory decision
             prompt = memory_decision_prompt(
@@ -134,6 +171,8 @@ class ChatAgent:
             decision_text = response.content.strip().lower()
             
             # Parse the decision
+            print(f"Decision text: {decision_text}")
+            # quit()
             use_memory = decision_text == "true"
             state["use_memory"] = use_memory
             state["current_step"] = "use_memory" if use_memory else "analyze_user_question"
@@ -155,14 +194,9 @@ class ChatAgent:
         """Analyze user question"""
         try:
             user_question = state.get("user_question", "")
-            conversation_history = state.get("conversation_history", [])
-            user_profile = state.get("user_profile", {})
-            
-            # Simple analysis for testing
             analysis_result = f"Analyzed question: {user_question}"
             state["analysis_result"] = analysis_result
             state["current_step"] = "search_rag"
-            
             self.logger.info(f"📝 ANALYZE USER QUESTION NODE:")
             self.logger.info(f"   Input: {user_question}")
             self.logger.info(f"   Analysis: {analysis_result}")
@@ -173,25 +207,42 @@ class ChatAgent:
             return state
 
     def _use_memory_node(self, state: WorkflowChatState) -> WorkflowChatState:
-        """Use memory context - dummy implementation"""
+        """Use memory context"""
         try:
             user_question = state.get("user_question", "")
+            memory_conversation = state.get("memory_conversation", [])
             
             self.logger.info(f"💾 USE MEMORY NODE:")
             self.logger.info(f"   Input: {user_question}")
-            self.logger.info(f"   Use Memory: {state.get('use_memory', False)}") # Log the use_memory state
+            self.logger.info(f"   Use Memory: {state.get('use_memory', False)}")
+            self.logger.info(f"   Memory Messages: {len(memory_conversation) if memory_conversation else 0}")
             
-            # Retrieve actual memory context
-            state["memory_context"] = get_memory_context(state)
-            self.logger.info(f"   Output: Memory context retrieved")
+            # Use the loaded memory conversation as context
+            if memory_conversation:
+                # Format memory conversation for context
+                memory_context = []
+                for msg in memory_conversation:
+                    if isinstance(msg, dict):
+                        role = msg.get('role', 'user')
+                        content = msg.get('content', '')
+                        memory_context.append(f"{role}: {content}")
+                    else:
+                        memory_context.append(str(msg))
+                
+                state["memory_context"] = "\n".join(memory_context)
+                self.logger.info(f"   Memory Context: {len(state['memory_context'])} characters")
+            else:
+                state["memory_context"] = ""
+                self.logger.info(f"   Memory Context: Empty")
+            
             state["current_step"] = "analyze_user_question"
-            
-            self.logger.info(f"   Output: Dummy memory context retrieved")
             self.logger.info(f"   Next: analyze_user_question")
             
             return state
         except Exception as e:
             self.logger.error(f"Error in Use Memory Node: {e}")
+            state["memory_context"] = ""
+            state["current_step"] = "analyze_user_question"
             return state
 
     def _execute_tools_node(self, state: WorkflowChatState) -> WorkflowChatState:
@@ -200,7 +251,6 @@ class ChatAgent:
             self.logger.info(f"🔧 EXECUTE TOOLS NODE:")
             self.logger.info(f"   Input: Tool execution requested")
             
-            # Simple tool execution for testing
             state["tool_results"] = "Tool execution completed (dummy)"
             state["current_step"] = "generate_response"
             
@@ -277,11 +327,18 @@ class ChatAgent:
             self.logger.info(f"   Tool Results: {len(tool_calls)} tools executed")
             
             # Generate response using LLM
-            prompt = chat_generation_prompt(
-                user_question=user_question,
-                conversation_history=str(conversation_history),
+            memory_context = state.get("memory_context", "")
+            system_prompt = chat_generation_system_prompt(
+                # user_question=user_question,
+                # conversation_history=str(conversation_history),
+                user_profile=state.get("user_profile", ""),
                 tool_results=[tc.result for tc in tool_calls],
                 language=state.get("language")
+            )
+            prompt = build_langchain_template(
+                user_input=user_question,
+                conversation_history=conversation_history,
+                system_prompt=system_prompt,
             )
             
             response = self.llm.invoke(prompt)
@@ -297,36 +354,43 @@ class ChatAgent:
             state["final_response"] = f"Error generating response: {str(e)}"
             state["is_complete"] = True
             return state
-
-    async def _generate_response_stream(self, users_question:str,
-                                        history:List[Dict[str,str]],
-                                        tool_calls:List[ToolCall],
-                                        ) -> AsyncGenerator:
-        """Generate a response stream for the given user question and chat history.
-        Args:
-            users_question: The user's question.
-            history: The chat history, a list of dictionaries with "role" and "content" keys.
-        Returns:
-            The generated response stream.
-        """
-
-        prompt = render_prompt(
-            template_name='chat',
-            user_question = users_question,
-            conversation_history = history,
-            tool_calls = tool_calls,
-        )
         
-        # Stream response from LLM
-        async for chunk in self.llm.astream(prompt):
-            if hasattr(chunk, 'content'):
-                yield chunk.content
+
+        
+
+    # async def _generate_response_stream(self, users_question:str,
+    #                                     history:List[Dict[str,str]],
+    #                                     tool_calls:List[ToolCall],
+    #                                     ) -> AsyncGenerator:
+    #     """Generate a response stream for the given user question and chat history.
+    #     Args:
+    #         users_question: The user's question.
+    #         history: The chat history, a list of dictionaries with "role" and "content" keys.
+    #     Returns:
+    #         The generated response stream.
+    #     """
+    #     memory_context = self.state.get("memory_context", "")
+    #     prompt = render_prompt(
+    #         template_name='chat',
+    #         user_question = users_question,
+    #         conversation_history = history,
+    #         tool_calls = tool_calls,
+    #         memory_context = memory_context,
+    #     )
+
+    #     self.logger.info(f"Prompt: {prompt}")
+        
+    #     # Stream response from LLM
+    #     async for chunk in self.llm.astream(prompt):
+    #         if hasattr(chunk, 'content'):
+    #             yield chunk.content
 
     async def run_stream(self, users_question: str,
                          history: List[Dict[str, str]] = None,
                          tool_calls: List[ToolCall] = None,
                          user_profile: Dict[str, str] = None,
-                         language: str = "vietnamese"
+                         language: str = "vietnamese",
+                        #  top_conversations: int = 5
                          ) -> AsyncGenerator:
         """Run the chat agent in streaming mode - same workflow as run_sync but streams final LLM response"""
         
@@ -365,16 +429,25 @@ class ChatAgent:
             self.logger.info("Starting LLM streaming generation...")
             if final_state:
                 user_question = final_state.get("user_question", "")
-                conversation_history = final_state.get("conversation_history", [])
+                conversation_history = final_state.get("memory_conversation", [])
+                # conversation_history = conversation_history[-top_conversations:]
+                # memory_context = final_state.get("memory_context", "")
                 tool_calls_result = final_state.get("tool_calls", [])
                 language_from_state = final_state.get("language", language)
                 
                 # Build prompt same as _generate_response_node
-                prompt = chat_generation_prompt(
-                    user_question=user_question,
-                    conversation_history=str(conversation_history),
+                system_prompt = chat_generation_system_prompt(
+                    # user_question=user_question,
+                    # conversation_history=str(conversation_history),
                     tool_results=[tc.result for tc in tool_calls_result],
-                    language=language_from_state
+                    language=language_from_state,
+                    user_profile=user_profile,
+                    # memory_context=memory_context
+                )
+                prompt = build_langchain_template(
+                    user_input=user_question,
+                    conversation_history=conversation_history,
+                    system_prompt=system_prompt,
                 )
                 
                 # Stream response from LLM chunk by chunk (ONLY difference from sync)
@@ -427,8 +500,131 @@ class ChatAgent:
         except Exception as e:
             logger.error(f"Error in run_sync: {str(e)}")
             return f"Error: {str(e)}"
+
+    # Cấu hình mặc định
+    DEFAULT_URL = "https://beproto.pythera.ai/windmill/stream-llm"
+    DEFAULT_MODEL = "gpt-4.1-nano-2025-04-14"
+    
+    def streaming(self,session_id: str = "",
+        model: str = DEFAULT_MODEL,
+        messages: List[Dict] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 512,
+        top_p: float = 1.0,
+        stream: bool = True,
+        url: str = DEFAULT_URL,
+        timeout: int = 30
+        ):
+        # Tạo payload
+        payload = {
+            "session_id": session_id,
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "top_p": top_p,
+            "stream": stream,
+        }
+
+        # Headers
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+
+        print(f"🚀 Gửi request đến: {url}")
+        print(f"📝 Model: {model}")
+        print(f"🔧 Session ID: {session_id}")
+        print(
+            f"📊 Parameters: temperature={temperature}, max_tokens={max_tokens}, top_p={top_p}"
+        )
+        print(f"💬 Số lượng messages: {len(messages)}")
+        print("-" * 50)
+
+        try:
+            # Gửi request
+            response = requests.post(url, json=payload)
+
+            return response.json()
+        except requests.RequestException as e:
+            print(f"❌ Request failed: {e}")
+            return None
+    
+    async def run_api(self, users_question: str,
+                         history: List[Dict[str, str]] = None,
+                         tool_calls: List[ToolCall] = None,
+                         user_profile: Dict[str, str] = None,
+                         language: str = "vietnamese",
+                        #  top_conversations: int = 5
+                         ):
+        """Run the chat agent in streaming mode - same workflow as run_sync but streams final LLM response"""
         
-
-
-
+        if history is None:
+            history = []
+        if tool_calls is None:
+            tool_calls = []
+        if user_profile is None:
+            user_profile = {}
+            
+        self.logger.info(f"🚀 Running chat agent in streaming mode with question: {users_question}")
         
+        try:
+            initial_state = {
+                "user_question": users_question,
+                "conversation_history": history,
+                "tool_calls": tool_calls,
+                "user_profile": user_profile,
+                "current_step": "memory_decision",
+                "is_complete": False,
+                "llm": self.llm,
+                "memory_conversation": None,
+                "language": language,
+            }
+
+            # Run workflow WITHOUT generation node (stop at search_rag)
+            self.logger.info("Running workflow (memory → analyze → search_rag)...")
+            final_state = None
+            async for chunk in self.graph_without_generation.astream(initial_state):
+                node_name = list(chunk.keys())[0]
+                node_output = chunk[node_name]
+                final_state = node_output
+                self.logger.info(f"   ✓ Node '{node_name}' completed")
+            
+            # Now we have final_state with all data - stream the final LLM generation
+            self.logger.info("Starting LLM streaming generation...")
+            if final_state:
+                user_question = final_state.get("user_question", "")
+                conversation_history = final_state.get("memory_conversation", [])
+                # conversation_history = conversation_history[-top_conversations:]
+                # memory_context = final_state.get("memory_context", "")
+                tool_calls_result = final_state.get("tool_calls", [])
+                language_from_state = final_state.get("language", language)
+                
+                # Build prompt same as _generate_response_node
+                system_prompt = chat_generation_system_prompt(
+                    # user_question=user_question,
+                    # conversation_history=str(conversation_history),
+                    tool_results=[tc.result for tc in tool_calls_result],
+                    language=language_from_state,
+                    user_profile=user_profile,
+                    # memory_context=memory_context
+                )
+                prompt = [{"role":"user","content":system_prompt}]
+                print(prompt)
+                
+                response = self.streaming(messages = prompt)
+                
+                yield response['result']['content']
+                # prompt = build_langchain_template(
+                #     user_input=user_question,
+                #     conversation_history=conversation_history,
+                #     system_prompt=system_prompt,
+                # )
+                
+                # # Stream response from LLM chunk by chunk (ONLY difference from sync)
+                # async for chunk in self.llm.astream(prompt):
+                #     if hasattr(chunk, 'content') and chunk.content:
+                #         yield chunk.content
+            else:
+                yield "No response generated"
+                        
+        except Exception as e:
+            logger.error(f"Error in run_api: {str(e)}")
+            yield f"Error: {str(e)}"    
