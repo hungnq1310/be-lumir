@@ -11,18 +11,18 @@ mission: |
   - Always end with a helpful closing
 
 input: |
-  {{ user_question }}
-  {% if conversation_history %}
-  Conversation History:
-  {{ conversation_history }}
-  {% else %}
-  No conversation history
-  {% endif %}
   {% if tool_results and tool_results|length > 0 %}
-  Retrieved Information (use in priority order):
+  **Retrieved Information** (use in priority order):
   {% for tool_result in tool_results %}
   {{ loop.index }}. {{ tool_result }}
   {% endfor %}
+
+  {% if user_profile %}
+  **User Profile**:
+  {% for key, value in user_profile.items() %}
+  - {{ key }}: {{ value }}
+  {% endfor %}
+  {% endif %}
   
   IMPORTANT: If multiple sources provide definition/acronym information:
   - Prioritize information from "knowledge base" results first

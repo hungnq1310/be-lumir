@@ -2,6 +2,7 @@ from typing import List, Dict
 
 KEYWORD = {
     "TBI": ["TBI", "Trading Behavior Index"],
+    
     "PPA": ["PPA", "Personal Psychological Assessment"]
 }
 def get_keywords(keyword_list: List[str]) -> Dict[str, str]:

@@ -96,7 +96,6 @@ class WorkflowChatState(TypedDict):
     #########################
 
     use_memory: bool  # Change from UseMemory to bool for simplicity
-    memory_context: Optional[str]  # Add memory_context field
     tool_calls: List[ToolCall]  # Add tool_calls field
     tool_results: Optional[str]  # Add tool_results field
     memory_conversation: Optional[Any]  # Add memory_conversation field
