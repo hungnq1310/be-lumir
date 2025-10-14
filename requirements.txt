@@ -1,5 +1,8 @@
-openai-agents[encrypt]
-aiosqlite
-asyncpg
-cryptography
-sqlalchemy[asyncio]
+langchain-core==0.3.79
+openai==2.3.0
+fastapi==0.119.0
+dotenv
+pytz
+Jinja2==2 3.1.6
+langgraph==0.6.10
+langchain-openai==0.3.35

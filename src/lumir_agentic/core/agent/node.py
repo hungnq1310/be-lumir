@@ -7,6 +7,7 @@ from lumir_agentic.core.agent.memory import EncryptedMemoryManager
 from dotenv import load_dotenv
 
 from .states import WorkflowAgentState, WorkflowChatState, ReasoningStep, ToolCall, Plan, UseMemory
+from .prompt import build_langchain_template
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, SystemMessagePromptTemplate
 from langgraph.prebuilt import ToolNode
@@ -34,6 +35,98 @@ load_dotenv()
 LIMIT_CHAT = int(os.getenv("LIMIT_CHAT", 5))
 
 
+def execute_tool_calls(response_message, tool_registry: dict) -> dict:
+    """
+    Execute all tool_calls from the model's response message.
+    Return results as a dictionary {tool_name: output}.
+    """
+    results = {}
+    tool_calls = getattr(response_message, "tool_calls", [])
+
+    if not tool_calls:
+        return {"info": "No tool calls found in response."}
+
+    for call in tool_calls:
+        tool_name = call.get("name")
+        tool_args = call.get("args", {})
+        func = tool_registry.get(tool_name)
+
+        if not func:
+            results[tool_name] = f"⚠️ Tool '{tool_name}' chưa được đăng ký."
+            continue
+
+        try:
+            result = func.invoke(tool_args) 
+            results[tool_name] = result
+        except Exception as e:
+            results[tool_name] = f"❌ Error executing {tool_name}: {str(e)}"
+
+    return results
+
+
+
+def chat_plan(state: WorkflowChatState, conversation_history:List[Dict], user_question:str):
+
+    system_prompt = planning_prompt("chat_plan")
+    messages = build_langchain_template(user_input=user_question, 
+                                        conversation_history=conversation_history, 
+                                        system_prompt=system_prompt)
+    llm = state.get("llm")
+    if not llm:
+        raise ValueError("LLM not found in state")
+
+    response = llm.invoke(messages)
+    plan = response.content.strip()
+    return plan
+
+    
+def use_tools(state: Union[WorkflowChatState, WorkflowAgentState]):
+
+    # Get llm
+    llm = state.get("llm")
+    if not llm:
+        raise ValueError("LLM not found in state")
+
+    # Get plan
+    plan = state.get("plan")
+    if not plan:
+        raise ValueError("Plan not found in state")
+
+
+    list_tools = state.get("list_tools", [])
+    if not list_tools:
+        raise ValueError("List tools not found in state")
+    model_with_tools = llm.bind_tools(list_tools)
+    response = model_with_tools.invoke([
+        HumanMessage(content=plan)
+    ])
+    logger.info(f"Chat Plan Node - Generated Response: {response.content.strip()}")
+    
+    # create tools_registry base on name of list_tools
+    tool_registry = {}
+    for tool in list_tools:
+        # Get tool name from the function name if name attribute is not available
+        if hasattr(tool, 'name'):
+            tool_name = tool.name
+        else:
+            tool_name = tool.__name__
+        tool_registry[tool_name] = tool
+    
+    tool_results = execute_tool_calls(response, tool_registry)
+    logger.info(f"Chat Plan Node - Tool Results: {tool_results}")
+    
+    return tool_results
+    
+
+    
+
+def agent_plan():
+    pass
+
+def agent_tools():
+    pass
+
+
 
 def memory_decision_node(state: Union[WorkflowChatState, WorkflowAgentState]) -> bool:
     """
@@ -56,7 +149,6 @@ def memory_decision_node(state: Union[WorkflowChatState, WorkflowAgentState]) ->
         if not llm:
             raise ValueError("LLM not found in state")
 
-        # Gọi LLM để quyết định
         response = llm.invoke(prompt)
         decision_text = response.content.strip().lower()
         

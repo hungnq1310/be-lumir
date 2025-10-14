@@ -1,85 +1,3 @@
-# import os
-# from dotenv import load_dotenv
-# from langchain_openai import ChatOpenAI
-# from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
-# from langchain_core.tools import tool
-# from langgraph.prebuilt import ToolNode
-# from typing import List, Dict, Any
-# import sys
-# sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../src'))
-
-# from lumir_agentic.utils.keyword_TBI import get_keywords
-
-
-# # === 1. Load env ===
-# load_dotenv()
-# MODEL_NAME = os.getenv("MODEL_NAME")
-# API_KEY = os.getenv("API_KEY")
-# BASE_URL = os.getenv("BASE_URL")
-
-
-# # === 3. Init model with system prompt ===
-# system_prompt = """Bạn là một trợ lý AI thông minh. Khi người dùng hỏi về ý nghĩa của từ viết tắt, thuật ngữ chuyên môn, hoặc từ khóa không rõ nghĩa, hãy LUÔN sử dụng tool get_mapping_keyword để tra cứu định nghĩa chính xác từ cơ sở dữ liệu thay vì đoán hoặc trả lời dựa trên kiến thức có sẵn."""
-
-# llm = ChatOpenAI(
-#     model_name=MODEL_NAME,
-#     openai_api_key=API_KEY,
-#     base_url=BASE_URL,
-#     temperature=0
-# )
-
-
-# @tool
-# def get_weather(location: str):
-#     """Call to get the current weather."""
-#     if location.lower() in ["sf", "san francisco"]:
-#         return "It's 60 degrees and foggy."
-#     else:
-#         return "It's 90 degrees and sunny."
-
-# @tool
-# def get_coolest_cities():
-#     """Get a list of coolest cities"""
-#     return "nyc, sf"
-
-# @tool
-# def get_mapping_keyword(keyword: List[str]) -> Dict[str, Any]:
-#     """
-#     Tra cứu định nghĩa của các từ khóa, viết tắt hoặc thuật ngữ chuyên môn.
-    
-#     Sử dụng tool này khi người dùng hỏi về:
-#     - Ý nghĩa của từ viết tắt (VD: TBI, PPA, API, etc.)
-#     - Định nghĩa thuật ngữ chuyên môn
-#     - Giải thích các từ khóa không rõ nghĩa
-    
-#     Args:
-#         keyword: Danh sách từ khóa cần tra cứu
-#     Returns:
-#         Dict chứa từ khóa và ý nghĩa tương ứng từ cơ sở dữ liệu
-#     """
-#     return get_keywords(keyword_list=keyword)
-
-
-# # Test the tool functionality with system prompt
-# tool_node = ToolNode([get_weather, get_coolest_cities, get_mapping_keyword])
-# model_with_tools = llm.bind_tools([get_weather, get_coolest_cities, get_mapping_keyword])  
-
-# # Test without explicit instruction to see if system prompt works
-# response_message = model_with_tools.invoke([
-#     SystemMessage(content=system_prompt),
-#     HumanMessage(content="What is TBI?")
-# ])
-
-
-# print(response_message)
-
-# quit()
-# # Check if LLM used tools or responded directly
-# if hasattr(response_message, 'tool_calls') and response_message.tool_calls:
-#     result = tool_node.invoke({"messages": [response_message]})
-#     print(f"Tool result: {result['messages'][0].content}")
-# else:
-#     print(f"Direct response: {response_message.content}")
 
 
 import os
@@ -104,8 +22,8 @@ BASE_URL = os.getenv("BASE_URL")
 # === 2. Init model ===
 system_prompt = """Bạn là một trợ lý AI thông minh. 
 Khi người dùng hỏi về ý nghĩa của từ viết tắt, thuật ngữ chuyên môn, 
-hoặc từ khóa không rõ nghĩa, hãy LUÔN sử dụng tool get_mapping_keyword 
-để tra cứu định nghĩa chính xác từ cơ sở dữ liệu thay vì đoán hoặc trả lời dựa trên kiến thức có sẵn.
+hoặc từ khóa không rõ nghĩa, hãy LUÔN sử dụng tool get_mapping_keyword để tra cứu định nghĩa chính xác từ cơ sở dữ liệu. 
+Đối với MỌI câu hỏi định nghĩa (bao gồm cả từ viết tắt), hãy LUÔN sử dụng tool search_knowledge_base để cung cấp thông tin chi tiết.
 Khi người dùng hỏi về thông tin chi tiết, giải thích khái niệm chung, hoặc các câu hỏi cần tra cứu trong cơ sở dữ liệu kiến thức tổng quát, hãy sử dụng tool search_knowledge_base.
 Khi người dùng hỏi về thông tin cụ thể từ cơ sở dữ liệu của Lumir, đặc biệt là các báo cáo tài chính hoặc dữ liệu công ty, hãy sử dụng tool rag_lumir.
 Nếu một câu hỏi yêu cầu cả định nghĩa và thông tin chi tiết (từ kiến thức tổng quát hoặc từ Lumir), ví dụ như 'X là gì và hãy nói thêm về nó?', hãy LUÔN sử dụng kết hợp các công cụ phù hợp: get_mapping_keyword cho định nghĩa và search_knowledge_base (hoặc rag_lumir) cho thông tin chi tiết để cung cấp câu trả lời toàn diện nhất.
@@ -135,6 +53,8 @@ def get_coolest_cities():
 def get_mapping_keyword(keyword: List[str]) -> Dict[str, Any]:
     """
     Tra cứu định nghĩa của các từ khóa, viết tắt hoặc thuật ngữ chuyên môn.
+    Tool này CHỈ cung cấp định nghĩa ngắn gọn và cần kết hợp với search_knowledge_base để cung cấp thông tin chi tiết.
+    Đối với MỌI câu hỏi định nghĩa, kể cả từ viết tắt như 'What is TBI?', hãy LUÔN sử dụng cả tool này VÀ search_knowledge_base.
     """
     return get_keywords(keyword_list=keyword)
 
@@ -144,6 +64,7 @@ def search_knowledge_base(question: str, top_n: int = 10, score_threshold: float
     """
     Tìm kiếm thông tin chi tiết, giải thích khái niệm chung, hoặc các câu hỏi cần tra cứu trong cơ sở dữ liệu kiến thức tổng quát.
     Sử dụng tool này khi người dùng hỏi các câu hỏi như "Giải thích về X", "Thông tin về Y", "X là gì?" (khi X không phải là từ viết tắt đơn thuần), hoặc khi cần thông tin chi tiết về một chủ đề rộng.
+    Sử dụng tool này cho MỌI câu hỏi định nghĩa, kể cả từ viết tắt như 'What is TBI?', để cung cấp thông tin chi tiết bổ sung.
     Args:
         question: Câu hỏi cần tìm kiếm
         top_n: Số lượng kết quả trả về tối đa
@@ -231,8 +152,8 @@ tool_registry = {
 
 # Test cases for get_mapping_keyword and search_knowledge_base
 test_questions = [
-    ("What is TBI?", ["get_mapping_keyword"]),
-    ("What is PPA?", ["get_mapping_keyword"]),
+    ("What is TBI?", ["get_mapping_keyword", "search_knowledge_base"]),
+    ("What is PPA?", ["get_mapping_keyword", "search_knowledge_base"]),
     ("Giải thích về Machine Learning", ["search_knowledge_base"]),
     ("Thông tin về thị trường chứng khoán", ["search_knowledge_base"]),
     ("Tóm tắt báo cáo tài chính của công ty X", ["rag_lumir"]),

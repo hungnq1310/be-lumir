@@ -2,7 +2,7 @@ from ...loader.prompt_loader import PromptLoader
 import os
 from pathlib import Path
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from typing import List, Dict 
+from typing import List, Dict , Union, Literal
 
 # Create a global instance of PromptLoader with correct template directory
 current_dir = Path(__file__).parent.parent
@@ -35,15 +35,13 @@ def reasoning_prompt(user_question: str, conversation_history: str = "", user_pr
         user_profile=user_profile
     )
 
-def planning_prompt(user_question: str, reasoning_result: str, available_tools: list, user_profile: dict = None) -> str:
+def planning_prompt(planning_prompt_type: Literal["chat_plan", "agent_plan"],
+) -> str:
     """Prompt for planning step"""
     return render_prompt(
-        "planning",
-        user_question=user_question,
-        reasoning_result=reasoning_result,
-        available_tools=available_tools,
-        user_profile=user_profile
+        planning_prompt_type
     )
+
 
 def tool_execution_prompt(tool_name: str, parameters: dict, context: str) -> str:
     """Prompt for tool execution"""

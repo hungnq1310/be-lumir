@@ -28,11 +28,6 @@ from .core.agent.tools import (
 
 
 
-# def analyze_user_question_prompt(user_question: str, conversation_history: str = "", user_profile: dict = None) -> str:
-#     """Analyze user question prompt - dummy implementation for testing"""
-#     return reasoning_prompt(user_question, conversation_history, user_profile)
-
-
 class ChatAgent:
 
     """A chat agent that uses a language model to interact with users and perform tasks.
@@ -70,15 +65,13 @@ class ChatAgent:
         self.graph_without_generation = self._create_graph_without_generation()
         
     def _create_graph(self) -> StateGraph:
-
         self.logger.info("Creating state graph...")
         workflow = StateGraph(WorkflowChatState)
-
         # Add nodes with proper node functions
         workflow.add_node("memory_decision", self._memory_decision_node)
         workflow.add_node("analyze_user_question", self._analyze_user_question_node)
         workflow.add_node("use_memory", self._use_memory_node)
-        workflow.add_node("search_rag", self._search_rag_node)
+        workflow.add_node("search_info", self._search_info_node)
         workflow.add_node("execute_tools", self._execute_tools_node)
         workflow.add_node("generate_response", self._generate_response_node)
 
@@ -89,8 +82,9 @@ class ChatAgent:
             lambda x: "use_memory" if x.get("use_memory", False) else "analyze_user_question"
         )
         workflow.add_edge("use_memory", "analyze_user_question")
-        workflow.add_edge("analyze_user_question", "search_rag")
-        workflow.add_edge("search_rag", "generate_response")
+        workflow.add_edge("analyze_user_question", "search_info")
+        workflow.add_edge("search_info", "execute_tools")
+        workflow.add_edge("execute_tools", "generate_response")
         workflow.add_edge("generate_response", END)
 
         return workflow.compile()
@@ -99,23 +93,21 @@ class ChatAgent:
         """Create graph without final generation node - for streaming mode"""
         self.logger.info("Creating state graph without generation node (for streaming)...")
         workflow = StateGraph(WorkflowChatState)
-
         # Add nodes - same as normal graph but WITHOUT generate_response
         workflow.add_node("memory_decision", self._memory_decision_node)
         workflow.add_node("analyze_user_question", self._analyze_user_question_node)
         workflow.add_node("use_memory", self._use_memory_node)
-        workflow.add_node("search_rag", self._search_rag_node)
+        workflow.add_node("search_info", self._search_info_node)
         workflow.add_node("execute_tools", self._execute_tools_node)
-
-        # Add edges - stop at search_rag (no generation)
         workflow.set_entry_point("memory_decision")
         workflow.add_conditional_edges(
             "memory_decision",
             lambda x: "use_memory" if x.get("use_memory", False) else "analyze_user_question"
         )
         workflow.add_edge("use_memory", "analyze_user_question")
-        workflow.add_edge("analyze_user_question", "search_rag")
-        workflow.add_edge("search_rag", END)  # Stop here, no generation
+        workflow.add_edge("analyze_user_question", "search_info")
+        workflow.add_edge("search_info", "execute_tools")
+        workflow.add_edge("execute_tools", END)  # Stop here, no generation
 
         return workflow.compile()
 
@@ -154,7 +146,6 @@ class ChatAgent:
                     else:
                         memory_conversation = get_history(user_id, session_id)
                     
-                    self.logger.info(f"   Loaded memory conversation: {memory_conversation}")
                     state["memory_conversation"] = memory_conversation
                     self.logger.info(f"   Using user_id: {user_id}, session_id: {session_id}")
                 except Exception as e:
@@ -191,19 +182,34 @@ class ChatAgent:
             return state
 
     def _analyze_user_question_node(self, state: WorkflowChatState) -> WorkflowChatState:
-        """Analyze user question"""
+        """Analyze user question using chat_plan from node.py"""
         try:
+            from .core.agent.node import chat_plan
+            
             user_question = state.get("user_question", "")
-            analysis_result = f"Analyzed question: {user_question}"
-            state["analysis_result"] = analysis_result
-            state["current_step"] = "search_rag"
+            conversation_history = state.get("conversation_history", [])
+            
             self.logger.info(f"📝 ANALYZE USER QUESTION NODE:")
             self.logger.info(f"   Input: {user_question}")
-            self.logger.info(f"   Analysis: {analysis_result}")
-            self.logger.info(f"   Next: search_rag")
+            
+            # Set LLM in state for chat_plan to use
+            state["llm"] = self.llm
+            
+            # Use chat_plan to generate a plan
+            plan = chat_plan(state, conversation_history, user_question)
+            
+            state["plan"] = plan
+            state["analysis_result"] = f"Plan generated: {plan[:100]}..." if len(plan) > 100 else plan
+            state["current_step"] = "search_info"
+            
+            self.logger.info(f"   Plan: {plan}..." )
+            self.logger.info(f"   Next: search_info")
             return state
         except Exception as e:
             self.logger.error(f"Error in Analyze User Question Node: {e}")
+            # Fallback to simple analysis if chat_plan fails
+            state["analysis_result"] = f"Analyzed question: {user_question}"
+            state["current_step"] = "search_info"
             return state
 
     def _use_memory_node(self, state: WorkflowChatState) -> WorkflowChatState:
@@ -246,29 +252,78 @@ class ChatAgent:
             return state
 
     def _execute_tools_node(self, state: WorkflowChatState) -> WorkflowChatState:
-        """Execute tools"""
+        """Execute tools using use_tools from node.py"""
         try:
+            from .core.agent.node import use_tools
+            from .core.agent.tools import search_knowledge_base, get_mapping_keyword, get_memory_context
+            
             self.logger.info(f"🔧 EXECUTE TOOLS NODE:")
             self.logger.info(f"   Input: Tool execution requested")
             
-            state["tool_results"] = "Tool execution completed (dummy)"
+            # Ensure LLM is in state
+            if "llm" not in state:
+                state["llm"] = self.llm
+            
+            # Ensure plan is in state
+            elif "plan" not in state:
+                self.logger.warning("No plan found in state, using default plan")
+                user_question = state.get("user_question", "")
+                state["plan"] = f"Search for information about: {user_question}"
+            
+            # Set available tools
+            state["list_tools"] = [
+                search_knowledge_base,
+                get_mapping_keyword,
+                get_memory_context
+            ]
+            
+            # Execute tools using use_tools
+            tool_results = use_tools(state)
+            
+            # Store results in state
+            state["tool_results"] = tool_results
+            
+            # Convert tool_results to ToolCall objects for compatibility
+            tool_calls = []
+            for tool_name, result in tool_results.items():
+                tool_call = ToolCall(
+                    tool_name=tool_name,
+                    parameters={},  
+                    result=str(result),
+                    success=not str(result).startswith("❌")
+                )
+                tool_calls.append(tool_call)
+            
+            state["tool_calls"] = tool_calls
             state["current_step"] = "generate_response"
             
-            self.logger.info(f"   Output: Tool execution completed (dummy)")
+            self.logger.info(f"   Output: {len(tool_calls)} tools executed")
             self.logger.info(f"   Next: generate_response")
             
             return state
         except Exception as e:
             self.logger.error(f"Error in Execute Tools Node: {e}")
+            # Fallback to dummy implementation
+            state["tool_results"] = f"Tool execution error: {str(e)}"
+            state["tool_calls"] = []
+            state["current_step"] = "generate_response"
             return state
 
-    def _search_rag_node(self, state: WorkflowChatState) -> WorkflowChatState:
+    def _search_info_node(self, state: WorkflowChatState) -> WorkflowChatState:
+        """Search info node - now redirects to execute_tools_node if plan exists"""
         try:
             user_question = state.get("user_question", "")
             
-            self.logger.info(f"🔍 SEARCH RAG NODE:")
+            self.logger.info(f"🔍 SEARCH INFO NODE:")
             self.logger.info(f"   Input: {user_question}")
+        
             
+            # If we have a plan from analyze_user_question_node, use execute_tools_node
+            if state.get("plan"):
+                self.logger.info(f"   Plan exists, redirecting to execute_tools_node")
+                return self._execute_tools_node(state)
+            
+            # Otherwise, use the original implementation
             result = search_knowledge_base.invoke({"question": user_question})
             
             if isinstance(result, dict) and result.get("success"):
@@ -335,6 +390,7 @@ class ChatAgent:
                 tool_results=[tc.result for tc in tool_calls],
                 language=state.get("language")
             )
+
             prompt = build_langchain_template(
                 user_input=user_question,
                 conversation_history=conversation_history,
@@ -354,43 +410,12 @@ class ChatAgent:
             state["final_response"] = f"Error generating response: {str(e)}"
             state["is_complete"] = True
             return state
-        
-
-        
-
-    # async def _generate_response_stream(self, users_question:str,
-    #                                     history:List[Dict[str,str]],
-    #                                     tool_calls:List[ToolCall],
-    #                                     ) -> AsyncGenerator:
-    #     """Generate a response stream for the given user question and chat history.
-    #     Args:
-    #         users_question: The user's question.
-    #         history: The chat history, a list of dictionaries with "role" and "content" keys.
-    #     Returns:
-    #         The generated response stream.
-    #     """
-    #     memory_context = self.state.get("memory_context", "")
-    #     prompt = render_prompt(
-    #         template_name='chat',
-    #         user_question = users_question,
-    #         conversation_history = history,
-    #         tool_calls = tool_calls,
-    #         memory_context = memory_context,
-    #     )
-
-    #     self.logger.info(f"Prompt: {prompt}")
-        
-    #     # Stream response from LLM
-    #     async for chunk in self.llm.astream(prompt):
-    #         if hasattr(chunk, 'content'):
-    #             yield chunk.content
 
     async def run_stream(self, users_question: str,
                          history: List[Dict[str, str]] = None,
                          tool_calls: List[ToolCall] = None,
                          user_profile: Dict[str, str] = None,
                          language: str = "vietnamese",
-                        #  top_conversations: int = 5
                          ) -> AsyncGenerator:
         """Run the chat agent in streaming mode - same workflow as run_sync but streams final LLM response"""
         
@@ -444,6 +469,7 @@ class ChatAgent:
                     user_profile=user_profile,
                     # memory_context=memory_context
                 )
+
                 prompt = build_langchain_template(
                     user_input=user_question,
                     conversation_history=conversation_history,
@@ -501,11 +527,10 @@ class ChatAgent:
             logger.error(f"Error in run_sync: {str(e)}")
             return f"Error: {str(e)}"
 
-    # Cấu hình mặc định
     DEFAULT_URL = "https://beproto.pythera.ai/windmill/stream-llm"
     DEFAULT_MODEL = "gpt-4.1-nano-2025-04-14"
     
-    def streaming(self,session_id: str = "",
+    def api_response(self,session_id: str = "",
         model: str = DEFAULT_MODEL,
         messages: List[Dict] = None,
         temperature: float = 0.7,
@@ -513,9 +538,8 @@ class ChatAgent:
         top_p: float = 1.0,
         stream: bool = True,
         url: str = DEFAULT_URL,
-        timeout: int = 30
+        timeout: int = 100
         ):
-        # Tạo payload
         payload = {
             "session_id": session_id,
             "model": model,
@@ -529,22 +553,21 @@ class ChatAgent:
         # Headers
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
 
-        print(f"🚀 Gửi request đến: {url}")
-        print(f"📝 Model: {model}")
-        print(f"🔧 Session ID: {session_id}")
-        print(
+        self.logger.info(f"🚀 Sending request to: {url}")
+        self.logger.info(f"📝 Model: {model}")
+        self.logger.info(f"🔧 Session ID: {session_id}")
+        self.logger.info(
             f"📊 Parameters: temperature={temperature}, max_tokens={max_tokens}, top_p={top_p}"
         )
-        print(f"💬 Số lượng messages: {len(messages)}")
-        print("-" * 50)
+        self.logger.info(f"💬 Số lượng messages: {len(messages)}")
+        self.logger.info("-" * 50)
 
         try:
-            # Gửi request
-            response = requests.post(url, json=payload)
+            response = requests.post(url, json=payload, timeout=timeout)
 
             return response.json()
         except requests.RequestException as e:
-            print(f"❌ Request failed: {e}")
+            self.logger.error(f"❌ Request failed: {e}")
             return None
     
     async def run_api(self, users_question: str,
@@ -599,32 +622,23 @@ class ChatAgent:
                 
                 # Build prompt same as _generate_response_node
                 system_prompt = chat_generation_system_prompt(
-                    # user_question=user_question,
-                    # conversation_history=str(conversation_history),
                     tool_results=[tc.result for tc in tool_calls_result],
                     language=language_from_state,
                     user_profile=user_profile,
-                    # memory_context=memory_context
                 )
-                prompt = [{"role":"user","content":system_prompt}]
-                print(prompt)
-                
-                response = self.streaming(messages = prompt)
-                
+                # Create conversation with system prompt
+                conversation = [
+                    {"role":"system","content":system_prompt},
+                ]
+                conversation.extend(conversation_history)
+                # Add user question
+                conversation.append({"role":"user","content":user_question})
+                response = self.api_response(messages = conversation)
                 yield response['result']['content']
-                # prompt = build_langchain_template(
-                #     user_input=user_question,
-                #     conversation_history=conversation_history,
-                #     system_prompt=system_prompt,
-                # )
-                
-                # # Stream response from LLM chunk by chunk (ONLY difference from sync)
-                # async for chunk in self.llm.astream(prompt):
-                #     if hasattr(chunk, 'content') and chunk.content:
-                #         yield chunk.content
+
             else:
                 yield "No response generated"
                         
         except Exception as e:
             logger.error(f"Error in run_api: {str(e)}")
-            yield f"Error: {str(e)}"    
+            yield f"Error: {str(e)}"

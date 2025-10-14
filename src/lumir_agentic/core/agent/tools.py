@@ -154,7 +154,7 @@ def get_mapping_keyword(keyword: List[str]) -> Dict[str, Any]:
     Returns:
         Dict chứa từ khóa và ý nghĩa tương ứng
     """
-    return get_keywords(list(keyword.keys()))
+    return get_keywords(list(keyword))
 
 def get_memory_context(state: WorkflowChatState):
     """

@@ -43,8 +43,8 @@ async def test_streaming():
             user_info=user_info
         )
         print("✓ ChatAgent khởi tạo thành công\n")
-        
-        question = "Tôi mới hỏi bạn điều gì ?"
+
+        question = " Chỉ số RI là Recommend Index phải không ? "
         print(f"=== TEST QUESTION: {question} ===\n")
         print("=== STREAMING RESPONSE ===")
         

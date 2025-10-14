@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 load_dotenv()
 
-
 class EncryptedMemoryManager:
     """
     Enhanced encrypted memory manager that supports both SQLite and PostgreSQL
