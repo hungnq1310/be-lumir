@@ -25,9 +25,11 @@ from .prompt import (
 from .tools import (
     search_knowledge_base,
     calculate_tbi_indicators,
-    get_trading_analysis,
     get_mapping_keyword,
     get_memory_context,
+    format_live_trading_table,
+    format_trade_account_table,
+    format_trade_history_table,
     TOOL_DESCRIPTION
 )
 
@@ -282,3 +284,7 @@ async def save_history(user_id: str, session_id: str, user_message: str, assista
     except Exception as e:
         logger.error(f"Error saving history for user {user_id}, session {session_id}: {e}")
         return False
+
+
+
+

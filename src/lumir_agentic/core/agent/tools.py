@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 from typing import Dict ,List, Any , Optional
 import dotenv
 
@@ -8,9 +9,10 @@ from .states import WorkflowChatState
 from langchain_core.tools import tool
 from ...utils.keyword_TBI import get_keywords, KEYWORD
 from ..tools.TBI_caculate import TBICalculator, get_TBI_data
-from ..tools.trading_caculate import get_trading_data
+from ..tools.trading_caculate import get_live_trading, LiveTrading, get_trade_account, TradeAccount, trade_hisory_report, TradeHistoryReport
 from ..tools.search_rag import rag_query
 from ...utils.logger import logger
+from tabulate import tabulate
 
 #####################
 #   LOAD ENV CONFIG #
@@ -52,58 +54,173 @@ def calculate_tbi_indicators(full_name: str,
             "message": "Failed to calculate TBI indicators"
         }
 
-
 @tool
-def get_trading_analysis(account_number: str) -> Dict[str, Any]:
+def format_live_trading_table(account_number: int, date_from: str = None, date_to: str = None, limit: int = None) -> str:
     """
-    Lấy và phân tích dữ liệu giao dịch chi tiết từ API trading.
-
-    Tool này sẽ truy xuất TRỰC TIẾP từ hệ thống trading và trả về:
-    - Tổng số giao dịch
-    - Win rate, profit factor
-    - Lãi/lỗ trung bình
-    - Phân tích theo thời gian, symbol, side
-    - Risk metrics và drawdown
-
-    QUAN TRỌNG: Luôn gọi tool này khi user hỏi về lịch sử trading, portfolio,
-    hoặc phân tích giao dịch. KHÔNG dựa vào conversation history cũ.
+    Lấy dữ liệu live trading và hiển thị dạng bảng
 
     Args:
-        account_number: Số tài khoản giao dịch (lấy từ user_profile)
+        account_number (int): Số tài khoản giao dịch
+        date_from (str, optional): Ngày bắt đầu (YYYY-MM-DD)
+        date_to (str, optional): Ngày kết thúc (YYYY-MM-DD)
+        limit (int, optional): Số lượng bản ghi tối đa
 
     Returns:
-        Dict chứa dữ liệu phân tích giao dịch chi tiết
+        str: Bảng dữ liệu live trading với các cột: ID, Symbol, Side, Volume, Entry Time, Entry Price, Pips, Profit, Balance, Equity
     """
-    try:
-        logger.system_info(f"[TOOL] get_trading_analysis called for account: {account_number}")
+    # Create LiveTrading object from parameters
+    data = LiveTrading(
+        account_number=account_number,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit
+    )
 
-        # Use get_trading_data function
-        config = {
-            "account_number": account_number,
-            "url": os.getenv("TRADING_ANALYZE_URL", "http://localhost:8081/analyze_trading")
-        }
+    # Get live trading data (raw JSON)
+    response = get_live_trading(data)
 
-        logger.system_info(f"[TOOL] Calling trading API at: {config['url']}")
-        trading_data = get_trading_data(config)
+    if not response.get('status') or not response.get('data', {}).get('data'):
+        return "Không có dữ liệu giao dịch"
 
-        logger.system_info(f"[TOOL] Trading data retrieved successfully: {len(str(trading_data))} chars")
+    trades = response['data']['data']
+    if not trades:
+        return "Không có giao dịch nào trong khoảng thời gian này"
 
-        return {
-            "success": True,
-            "data": trading_data,
-            "message": "Trading data retrieved successfully"
-        }
-    except Exception as e:
-        logger.system_error(f"[TOOL] get_trading_analysis ERROR: {type(e).__name__}: {str(e)}")
-        import traceback
-        logger.system_error(f"[TOOL] Traceback: {traceback.format_exc()}")
+    # Prepare table data with proper field mapping
+    headers = ["ID", "Symbol", "Side", "Volume", "Entry Time", "Entry Price", "Pips", "Profit", "Balance", "Equity"]
+    rows = []
 
-        return {
-            "success": False,
-            "error": str(e),
-            "error_type": type(e).__name__,
-            "message": "Failed to retrieve trading data"
-        }
+    for trade in trades:
+        # Parse position data if available
+        position_data = {}
+        if trade.get('position'):
+            try:
+                if isinstance(trade['position'], str):
+                    position_data = json.loads(trade['position'])
+                else:
+                    position_data = trade['position']
+            except:
+                position_data = {}
+
+        # Extract data from position or trade
+        profit_val = position_data.get('profit') or trade.get('profit') or 0
+        balance_val = trade.get('balance') or 0
+        equity_val = trade.get('equity') or 0
+
+        row = [
+            trade.get('id', 'N/A'),
+            position_data.get('symbol', 'N/A'),
+            position_data.get('side', 'N/A'),
+            f"{position_data.get('volume_lots', 0):.2f}" if position_data.get('volume_lots') else 'N/A',
+            position_data.get('entry_time', trade.get('time', 'N/A'))[:19] if position_data.get('entry_time') else trade.get('time', 'N/A')[:19] if trade.get('time') else 'N/A',
+            f"{position_data.get('entry_price', 0):.3f}" if position_data.get('entry_price') else 'N/A',
+            f"{position_data.get('pips', 0):.1f}" if position_data.get('pips') else 'N/A',
+            f"{float(profit_val):,.2f}",
+            f"{float(balance_val):,.2f}",
+            f"{float(equity_val):,.2f}"
+        ]
+        rows.append(row)
+    account_number = f"ACCOUNT NUMER: {account_number}" + '\n'
+    return account_number + tabulate(rows, headers=headers, tablefmt="grid", stralign="left", numalign="right")
+
+@tool
+def format_trade_account_table(user_id: str) -> str:
+    """
+    Lấy dữ liệu tài khoản giao dịch và hiển thị dạng bảng
+
+    Args:
+        user_id (str): ID của người dùng
+
+    Returns:
+        str: Bảng dữ liệu tài khoản với thông tin chi tiết và thống kê giao dịch
+             Bảng chính: Account Number, Nickname, Broker, Platform, Type, Balance, Created At
+             Thống kê: Today's Profit, Current Equity, Current Balance, Current P&L, Total Profit, Total Trades, Today's Trades, Open Positions, Open Orders
+    """
+    # Create TradeAccount object from parameter
+    data = TradeAccount(user_id=user_id)
+
+    # Get trade account data (raw JSON)
+    response = get_trade_account(data)
+
+    if not response.get('status') or not response.get('data', {}).get('items'):
+        return "Không có dữ liệu tài khoản"
+
+    accounts = response['data']['items']
+
+    # Prepare table data for main account info
+    headers = ["Account Number", "Nickname", "Broker", "Platform", "Type", "Created At"]
+    rows = []
+
+    for account in accounts:
+        stats = account.get('trading_stats', {})
+        # Get balance from trading_stats instead of account level for more accurate data
+        row = [
+            account.get('account_number', 'N/A'),
+            account.get('nickname', 'N/A'),
+            account.get('broker', 'N/A'),
+            account.get('platform', 'N/A'),
+            account.get('type', 'N/A'),
+            account.get('created_at', 'N/A')[:19] if account.get('created_at') else 'N/A'
+        ]
+        rows.append(row)
+
+    # Return only the main account table (trim stats as requested)
+    account_table = tabulate(rows, headers=headers, tablefmt="grid", stralign="left", numalign="right")
+    return account_table
+
+@tool
+def format_trade_history_table(account_number: int, date_from: str = None, date_to: str = None, symbol: str = None, side: str = None) -> str:
+    """
+    Lấy báo cáo lịch sử giao dịch và hiển thị dạng bảng
+
+    Args:
+        account_number (int): Số tài khoản giao dịch
+        date_from (str, optional): Ngày bắt đầu (YYYY-MM-DD)
+        date_to (str, optional): Ngày kết thúc (YYYY-MM-DD)
+        symbol (str, optional): Symbol cặp tiền (ví dụ: "XAUUSDm")
+        side (str, optional): Loại lệnh ("buy" hoặc "sell")
+
+    Returns:
+        str: Bảng báo cáo lịch sử giao dịch với các chỉ số: Total Trades, Today Balance, Net Profit Before Today,
+             Today Permitted Loss, Max Permitted Loss, Initial Balance, Balance Size, Start Time, Last Updated, Net Profit Today
+    """
+    # Create TradeHistoryReport object from parameters
+    kwargs = {
+        'account_number': account_number,
+        'date_from': date_from,
+        'date_to': date_to
+    }
+
+    # Only add optional parameters if they're not None
+    if symbol is not None:
+        kwargs['symbol'] = symbol
+    if side is not None:
+        kwargs['side'] = side
+
+    data = TradeHistoryReport(**kwargs)
+
+    # Get trade history report data (raw JSON)
+    response = trade_hisory_report(data)
+
+    if not response:
+        return "Không có dữ liệu báo cáo"
+
+    headers = ["Metric", "Value"]
+    rows = [
+        ["account_id", f"{kwargs['account_number']}"],
+        ["total_trades", f"{response.get('total_trades', 0):,.0f}"],
+        ["today_balance", f"{response.get('today_balance', 0):,.2f}"],
+        ["net_profit_before_today", f"{response.get('net_profit_before_today', 0):,.2f}"],
+        ["today_permitted_loss", f"{response.get('today_permitted_loss', 0):,.2f}"],
+        ["max_permitted_loss", f"{response.get('max_permitted_loss', 0):,.2f}"],
+        ["balance_init", f"{response.get('balance_init', 0):,.2f}"],
+        ["balance_size", f"{response.get('balance_size', 0):,.2f}" if response.get('balance_size') else "N/A"],
+        ["start_time", response.get('start_time', 'N/A')],
+        ["last_updated_time", response.get('last_updated_time', 'N/A')],
+        ["net_profit_today", f"{response.get('net_profit_today', 0):,.2f}"]
+    ]
+    account_header = f"ACCOUNT NUMER: {kwargs['account_number']}" + '\n'
+    return account_header + tabulate(rows, headers=headers, tablefmt="grid", stralign="left", numalign="right")
 
 
 
@@ -170,10 +287,29 @@ TOOL_DESCRIPTION = """
                 "birthday": {"type": "str", "description": "Ngày sinh theo định dạng DD/MM/YYYY."},
             }
         },
-        "get_trading_analysis": {
-            "description": "Lấy và phân tích dữ liệu giao dịch chi tiết từ API trading.",
+        "format_live_trading_table": {
+            "description": "Hiển thị các lệnh trade đang mở/hoạt động của tài khoản. Dùng khi user hỏi 'đang có lệnh nào', 'các trade đang mở', 'hiện tại giao dịch gì'.",
             "input": {
-                "account_number": {"type": "str", "description": "Số tài khoản giao dịch (lấy từ user_profile)."}
+                "account_number": {"type": "int", "description": "Số tài khoản giao dịch để xem các lệnh đang mở."},
+                "date_from": {"type": "str", "description": "Ngày bắt đầu (YYYY-MM-DD) - tùy chọn, dùng để lọc theo khoảng thời gian."},
+                "date_to": {"type": "str", "description": "Ngày kết thúc (YYYY-MM-DD) - tùy chọn, dùng để lọc theo khoảng thời gian."},
+                "limit": {"type": "int", "description": "Số lượng bản ghi tối đa - tùy chọn."}
+            }
+        },
+        "format_trade_account_table": {
+            "description": "Liệt kê tất cả các tài khoản trade của user. Dùng khi user hỏi 'có những tài khoản nào', 'tài khoản trade', 'các account'.",
+            "input": {
+                "user_id": {"type": "str", "description": "ID của người dùng để xem danh sách các tài khoản trade."}
+            }
+        },
+        "format_trade_history_table": {
+            "description": "Tạo báo cáo hiệu năng trade tổng quan (lời/lỗ, số lượng giao dịch, v.v.). Dùng khi user hỏi 'hiệu năng trade', 'kết quả giao dịch', 'đánh giá tổng quan'.",
+            "input": {
+                "account_number": {"type": "int", "description": "Số tài khoản giao dịch để xem báo cáo hiệu năng."},
+                "date_from": {"type": "str", "description": "Ngày bắt đầu (YYYY-MM-DD) - tùy chọn, dùng để lọc báo cáo theo khoảng thời gian."},
+                "date_to": {"type": "str", "description": "Ngày kết thúc (YYYY-MM-DD) - tùy chọn, dùng để lọc báo cáo theo khoảng thời gian."},
+                "symbol": {"type": "str", "description": "Symbol cặp tiền (ví dụ: XAUUSDm) - tùy chọn, dùng để lọc theo cặp tiền cụ thể."},
+                "side": {"type": "str", "description": "Loại lệnh (buy hoặc sell) - tùy chọn, dùng để lọc theo loại lệnh."}
             }
         },
         "search_knowledge_base": {
@@ -203,7 +339,9 @@ def get_tools():
     """
     return [
         calculate_tbi_indicators,
-        get_trading_analysis,
+        format_live_trading_table,
+        format_trade_account_table,
+        format_trade_history_table,
         search_knowledge_base,
         get_mapping_keyword,
         get_memory_context

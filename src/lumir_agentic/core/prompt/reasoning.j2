@@ -29,8 +29,10 @@ IMPORTANT: |
     • If the user question is about calculating TBI indicators (regex: `\b(tính|tính toán|tính chỉ số|chỉ số TBI|TBI)\b`), you MUST:
         1) Call tool "calculate_tbi_indicators" with appropriate parameters.
   - Trading analysis handling (HARD RULE):
-    • If the user question is about trading analysis (regex: `\b(phân tích giao dịch|phân tích tài khoản|trading analysis)\b`), you MUST:
-        1) Call tool "get_trading_analysis" with appropriate parameters.
+    • If the user question is about trading analysis (regex: `\b(phân tích giao dịch|phân tích tài khoản|trading analysis|live trading|lịch sử giao dịch|trade history|trade account)\b`), you MUST:
+        1) For current active trades (user asks "đang có lệnh nào", "các trade đang mở", "hiện tại giao dịch gì"): Call tool "format_live_trading_table" with account_number and optional date range.
+        2) For account listing (user asks "có những tài khoản nào", "tài khoản trade", "các account"): Call tool "format_trade_account_table" with user_id.
+        3) For performance summary (user asks "hiệu năng trade", "kết quả giao dịch", "đánh giá tổng quan", "lời lỗ"): Call tool "format_trade_history_table" with account_number and optional filters.
   - RAG queries must include scope (time range, entities, fields needed) and avoid echoing vague questions verbatim.
   - Output must be minimal and follow the required Python dict structure only.
 
@@ -77,3 +79,5 @@ output_format: |
       ]
     }
   }
+
+

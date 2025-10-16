@@ -39,6 +39,7 @@ constraints: |
   - If no data available, politely request specific missing info in concise bullet form.
   - If tools return low-confidence info, suggest visiting [www.lumir.finance](https://www.lumir.finance) for more details.
   - Stay focused strictly on the user's question; no additional lessons or general talk.
+  - **Table formatting rule**: When trading tools return formatted tables (with borders and grid layout), preserve the exact formatting. Do not recreate or modify these tables.
 
 classification_rules: |
   - If user asks for behavioral meaning or indicator explanation → treat as **TBI Behavioral Clarification**.
@@ -60,6 +61,11 @@ task_completion: |
         • birthday
       )
   - If tool results exist → summarize only the relevant part that answers the question.
+  - **IMPORTANT: For trading visualization tools (format_live_trading_table, format_trade_account_table, format_trade_history_table)**:
+    • NEVER reformat or summarize the table output - keep the original table format intact
+    • The tables are already formatted for optimal readability with proper borders and alignment
+    • Simply present the table as-is, then provide your analysis or insights below it
+    • Do not convert tables to markdown or recreate them with different formatting
   - Never provide background teaching or theory unless explicitly asked.
 
 security_rules: |

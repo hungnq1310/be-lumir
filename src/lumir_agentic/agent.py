@@ -17,7 +17,10 @@ from .core.agent.tools import (
     search_knowledge_base,
     get_mapping_keyword,
     calculate_tbi_indicators,
-    get_trading_analysis,
+    format_live_trading_table,
+    format_trade_account_table,
+    format_trade_history_table,
+    
 )
 
 
@@ -43,7 +46,9 @@ class AgentGraph:
             search_knowledge_base,
             get_mapping_keyword,
             calculate_tbi_indicators,
-            get_trading_analysis,
+            format_live_trading_table,
+            format_trade_account_table,
+            format_trade_history_table,
         ]
         self.logger = logger
         self.user_info = user_info
@@ -230,14 +235,15 @@ class AgentGraph:
                 conversation_history = final_state.get("conversation_history", [])
                 tool_calls_result = final_state.get("tools_called", [])
                 language_from_state = final_state.get("language", language)
-                self.logger.info(f"   Tool Calls Result: {tool_calls_result}")
+                # self.logger.info(f"   Tool Calls Result: {tool_calls_result}")
                 system_prompt = agent_generation_system_prompt(
                     tool_result=[tool_calls_result],
                     language=language_from_state,
                     user_profile=user_profile,
                 )
 
-                # self.logger.info(f"   System Prompt: {system_prompt}")
+
+                self.logger.info(f"   System Prompt: {system_prompt}")
                 prompt = build_langchain_template(
                     user_input=user_question,
                     conversation_history=conversation_history,

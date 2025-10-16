@@ -36,10 +36,10 @@ async def test_streaming_agent():
     # Prepare user info
     user_info = UserInfo(
         full_user_name="Nguyễn Nhật Trường",
-        user_id="user_123",
+        user_id="1709",
         session_id="session_agent_123",
         birthday="20/02/2003",
-        account_trading_id="9259692",
+        account_trading_id="272515048",
     )
 
     try:
@@ -53,7 +53,7 @@ async def test_streaming_agent():
         print("✓ AgemtGraph khởi tạo thành công\n")
 
         # question = " Tôi vừa hỏi bạn điều gì vậy ?  "
-        question = input("Nhập câu hỏi của bạn: ")
+        question = " Hãy phân tích lịch sử trade của tôi :"
         print(f"=== TEST QUESTION: {question} ===\n")
         print("=== STREAMING RESPONSE (Agent) ===")
 
@@ -62,7 +62,13 @@ async def test_streaming_agent():
         async for chunk in agent.run_stream(
             user_question=question,
             # history=[],
-            user_profile={"full name": "Nguyễn Nhật Trường", "user_id": user_info.user_id, "session_id": user_info.session_id, "birthday": "20/02/2003", "account_trading_id": user_info.account_trading_id},
+            user_profile={
+                "full name": user_info.full_user_name,
+                "user_id": user_info.user_id,
+                "session_id": user_info.session_id,
+                "birthday": user_info.birthday,
+                "account_trading_id": user_info.account_trading_id,
+            },
             language="vietnamese",
         ):
             if chunk:
