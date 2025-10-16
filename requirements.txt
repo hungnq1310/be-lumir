@@ -1,8 +1,14 @@
 langchain-core==0.3.79
-openai==2.3.0
+openai==1.109.1
 fastapi==0.119.0
-dotenv
+uvicorn[standard]==0.34.0
+python-dotenv==1.0.0
 pytz
-Jinja2==2 3.1.6
+Jinja2
 langgraph==0.6.10
 langchain-openai==0.3.35
+openai-agents==0.3.3
+aiosqlite==0.21.0
+pydantic==2.12.2
+openai-agents[encrypt]
+openai-agents[sqlalchemy]
