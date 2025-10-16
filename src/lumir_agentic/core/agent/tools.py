@@ -20,15 +20,13 @@ dotenv.load_dotenv()
 
 @tool
 def calculate_tbi_indicators(full_name: str, 
-                             birthday: str, 
-                             current_date: Optional[str] = None) -> Dict[str, Any]:
+                             birthday: str) -> Dict[str, Any]:
     """
     Tính toán các chỉ số TBI (Trading Behavior Intelligence) dựa trên tên và ngày sinh.
     
     Args:
         full_name: Tên đầy đủ của người dùng
         birthday: Ngày sinh theo định dạng DD/MM/YYYY
-        current_date: Ngày hiện tại (tùy chọn)
     
     Returns:
         Dict chứa các chỉ số TBI đã tính toán
@@ -161,6 +159,41 @@ def get_memory_context(state: WorkflowChatState):
     Retrieves the memory context for the current conversation.
     """
     return state.get("memory_conversation", "")
+
+TOOL_DESCRIPTION = """
+
+     {
+        "calculate_tbi_indicators": {
+            "description": "Tính toán các chỉ số TBI (Trading Behavior Intelligence) dựa trên tên và ngày sinh.",
+            "input": {
+                "full_name": {"type": "str", "description": "Tên đầy đủ của người dùng."},
+                "birthday": {"type": "str", "description": "Ngày sinh theo định dạng DD/MM/YYYY."},
+            }
+        },
+        "get_trading_analysis": {
+            "description": "Lấy và phân tích dữ liệu giao dịch chi tiết từ API trading.",
+            "input": {
+                "account_number": {"type": "str", "description": "Số tài khoản giao dịch (lấy từ user_profile)."}
+            }
+        },
+        "search_knowledge_base": {
+            "description": "Tìm kiếm thông tin trong knowledge base bằng RAG.",
+            "input": {
+                "question": {"type": "str", "description": "Câu hỏi cần tìm kiếm."},
+                "top_n": {"type": "int", "description": "Số lượng kết quả trả về tối đa (auto top_k = 5)."},
+                "score_threshold": {"type": "float", "description": "Ngưỡng điểm tin cậy (auto = 0.3)."}
+            }
+        },
+        "get_mapping_keyword": {
+            "description": "Lấy từ khóa tương ứng từ danh sách các từ khóa đã định nghĩa.",
+            "input": {
+                "keyword": {"type": "List[str]", "description": "Danh sách từ khóa cần tra cứu."}
+            }
+        }
+    }
+
+"""
+
 
 def get_tools():
     """

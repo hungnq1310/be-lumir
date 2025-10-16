@@ -22,7 +22,44 @@ KEYWORD ={
     "DAI": ["Daily Alignment Index", "phản ánh mức độ phù hợp giữa trạng thái hành vi cá nhân và nhịp thị trường trong từng ngày, gợi ý hoạt động phù hợp như quan sát, học hỏi, review hay hành động."],
     "CII": ["Cohort Influence Index", "phản ánh ảnh hưởng của bối cảnh thế hệ và môi trường thị trường tới phong cách giao dịch, giúp trader thích nghi tốt hơn và vẫn giữ bản sắc cá nhân."],
     "AMI": ["Annual Momentum Index", "phản ánh nhịp độ hành vi và năng lượng hàng năm, giúp trader xác định trọng tâm phát triển phù hợp như kỷ luật, chiến lược hay mở rộng quy mô giao dịch."],
-    "BCI": ["Behavioral Challenge Index", "phản ánh khó khăn trong việc duy trì kỷ luật và hành vi đúng khi thị trường thay đổi, giúp nhận diện nút thắt để thiết kế thử thách coaching phù hợp."]
+    "BCI": ["Behavioral Challenge Index", "phản ánh khó khăn trong việc duy trì kỷ luật và hành vi đúng khi thị trường thay đổi, giúp nhận diện nút thắt để thiết kế thử thách coaching phù hợp."],
+    
+
+    # Traidng keyword
+    "total_trades": ['Tổng số lệnh đã được thực hiện trong giai đoạn theo dõi.', "Phản ánh mức độ hoạt động của trader hoặc hệ thống. Số lượng lớn cho thấy tần suất giao dịch cao, dùng để đánh giá hiệu suất, tỉ lệ thắng, và chất lượng chiến lược." ],
+    "today_balance": ["Số dư tài khoản hiện tại sau khi kết thúc ngày giao dịch.", "Thể hiện giá trị tài khoản thực tế bao gồm cả lời/lỗ của ngày hiện tại; dùng để theo dõi biến động vốn hằng ngày."],
+     "net_profit_before_today": [
+    "Tổng lợi nhuận hoặc thua lỗ tích lũy trước ngày hiện tại.",
+    "Cho biết hiệu suất tổng thể trước khi tính các kết quả của ngày hôm nay, giúp đánh giá xu hướng lời/lỗ trong giai đoạn dài hơn."
+  ],
+    "net_profit_today": [
+        "Lợi nhuận hoặc thua lỗ ròng phát sinh trong ngày hiện tại.",
+        "Đo lường kết quả giao dịch trong ngày, giúp kiểm soát hiệu suất ngắn hạn và phản ứng thị trường."
+    ],
+    "today_permitted_loss": [
+        "Giới hạn lỗ tối đa được phép trong ngày.",
+        "Công cụ kiểm soát rủi ro hằng ngày; khi lỗ vượt mức này, hệ thống hoặc trader phải dừng giao dịch để bảo toàn vốn."
+    ],
+    "max_permitted_loss": [
+        "Giới hạn lỗ tối đa tổng cộng kể từ đầu kỳ hoặc giai đoạn giao dịch.",
+        "Mức sàn bảo vệ tài khoản khỏi rủi ro sụp đổ; nếu chạm giới hạn này, tài khoản sẽ bị ngưng hoạt động hoặc reset."
+    ],
+    "balance_init": [
+        "Số vốn khởi điểm của tài khoản khi bắt đầu giao dịch.",
+        "Là cơ sở để tính drawdown, lợi nhuận %, và quy mô rủi ro. Mọi chỉ số hiệu suất đều quy chiếu về giá trị này."
+    ],
+    "balance_size": [
+        "Phân loại quy mô tài khoản (mini, standard, pro, v.v.) hoặc dung lượng vốn quản lý.",
+        "Giúp xác định hạn mức giao dịch, khối lượng lệnh, và cách áp dụng chiến lược quản lý rủi ro."
+    ],
+    "start_time": [
+        "Thời điểm bắt đầu giai đoạn theo dõi hoặc kích hoạt tài khoản.",
+        "Giúp xác định thời gian hoạt động, tính lợi nhuận trung bình theo ngày, và tốc độ tăng trưởng tài khoản."
+    ],
+    "last_updated_time": [
+        "Thời điểm dữ liệu được cập nhật gần nhất.",
+        "Cho biết tính mới của dữ liệu; quan trọng trong các dashboard theo dõi hoặc hệ thống risk engine thời gian thực."
+    ]
 }
 def get_keywords(keyword_list: List[str]) -> Dict[str, str]:
     global KEYWORD

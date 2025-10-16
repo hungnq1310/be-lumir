@@ -45,9 +45,9 @@ class WorkflowAgentState(TypedDict):
     #########################
     #         INPUT         #
     #########################
-    messages: Annotated[list, add_messages]
     conversation_history : List[ConversationMessage]
     user_profile: Optional[Dict[str, Any]]
+    user_question: str  # Add missing user_question field
 
     #########################
     #       PROCESSING      #

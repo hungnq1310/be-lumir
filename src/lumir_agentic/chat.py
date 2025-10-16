@@ -16,7 +16,6 @@ from langgraph.graph import StateGraph, END
 
 from .core.agent.prompt import (
     memory_decision_prompt,
-    reasoning_prompt,
     chat_generation_system_prompt,
 )
 
@@ -318,10 +317,12 @@ class ChatAgent:
             self.logger.info(f"   Input: {user_question}")
         
             
-            # If we have a plan from analyze_user_question_node, use execute_tools_node
+            # If we have a plan from analyze_user_question_node, do NOT call execute_tools here
+            # Let the graph transition (search_info -> execute_tools) handle it to avoid double execution
             if state.get("plan"):
-                self.logger.info(f"   Plan exists, redirecting to execute_tools_node")
-                return self._execute_tools_node(state)
+                self.logger.info(f"   Plan exists, proceeding to execute_tools via graph edge")
+                state["current_step"] = "execute_tools"
+                return state
             
             # Otherwise, use the original implementation
             result = search_knowledge_base.invoke({"question": user_question})

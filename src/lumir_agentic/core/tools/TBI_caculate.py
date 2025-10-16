@@ -13,6 +13,10 @@ TBI_DOCS_URL = os.getenv("TBI_DOCS_URL")
 if not TBI_DOCS_URL:
     raise ValueError("TBI_DOCS_URL environment variable is required")
 
+SESSION_DATA_TBI = os.getenv("SESSION_DATA_TBI")
+if not SESSION_DATA_TBI:
+    raise ValueError("SESSION_DATA_TBI environment variable is required")
+
 
 class TBICalculator:
     """
@@ -1029,7 +1033,7 @@ def get_TBI_data(
     question: str,
     dob: str,
     name: str,
-    session_id: str = "a2b38e6d-9486-4370-81ec-cddbe81e04af",
+    session_id: str = SESSION_DATA_TBI,
 ):
     """Get TBI data based on question, dob, name and session_id"""
     tbi_data = tbi_data_wrapper(

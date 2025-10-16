@@ -14,11 +14,12 @@ from langgraph.prebuilt import ToolNode
 from langchain_openai import ChatOpenAI
 
 from .prompt import (
-    reasoning_prompt,
     planning_prompt,
-    tool_execution_prompt,
-    memory_decision_prompt
-    
+    memory_decision_prompt, 
+    reasoning_agent_prompt,
+    agent_generation_system_prompt,
+    agent_use_tools_prompt
+  
 )
 
 from .tools import (
@@ -26,13 +27,40 @@ from .tools import (
     calculate_tbi_indicators,
     get_trading_analysis,
     get_mapping_keyword,
-    get_memory_context
+    get_memory_context,
+    TOOL_DESCRIPTION
 )
 
 
 load_dotenv()
 
 LIMIT_CHAT = int(os.getenv("LIMIT_CHAT", 5))
+
+def reasoning_agent_node(state: WorkflowAgentState):
+    """
+    Phân tích dựa trên context cung cấp và đưa ra những quyết định sử dụng  những nguồn gì để đáp ứng câu hỏi của user.
+    """
+    # Sử dụng conversation_history thay vì memory_conversation cho agent flow
+    conv_history = state.get("conversation_history", [])
+    system_prompt = reasoning_agent_prompt(
+        user_info=state.get("user_info"),
+        conversation_history=str(conv_history),
+        tools=TOOL_DESCRIPTION,
+        user_question=state.get("user_question", ""),
+    )
+
+
+    messages = build_langchain_template(
+        user_input=state.get("user_question", ""),
+        conversation_history=[], # when using memory conversation , it conflict with output format reasoning agent
+        system_prompt=system_prompt,
+    )
+    llm = state.get("llm")
+    if not llm:
+        raise ValueError("LLM not found in state")
+    response = llm.invoke(messages)
+    return response
+
 
 
 def execute_tool_calls(response_message, tool_registry: dict) -> dict:
@@ -92,12 +120,19 @@ def use_tools(state: Union[WorkflowChatState, WorkflowAgentState]):
     if not plan:
         raise ValueError("Plan not found in state")
 
-
     list_tools = state.get("list_tools", [])
     if not list_tools:
         raise ValueError("List tools not found in state")
+    # Build system prompt to enforce mapping → RAG policy for definition queries
+    system_prompt = agent_use_tools_prompt(
+        user_question=state.get("user_question", ""),
+        reasoning=plan,
+        tools=TOOL_DESCRIPTION,
+    )
+
     model_with_tools = llm.bind_tools(list_tools)
     response = model_with_tools.invoke([
+        SystemMessage(content=system_prompt),
         HumanMessage(content=plan)
     ])
     logger.info(f"Chat Plan Node - Generated Response: {response.content.strip()}")
@@ -113,17 +148,14 @@ def use_tools(state: Union[WorkflowChatState, WorkflowAgentState]):
         tool_registry[tool_name] = tool
     
     tool_results = execute_tool_calls(response, tool_registry)
-    logger.info(f"Chat Plan Node - Tool Results: {tool_results}")
+    # logger.info(f"Chat Plan Node - Tool Results: {tool_results}")
     
     return tool_results
     
 
     
 
-def agent_plan():
-    pass
-
-def agent_tools():
+def agent_plan(state:WorkflowAgentState):
     pass
 
 
@@ -142,7 +174,7 @@ def memory_decision_node(state: Union[WorkflowChatState, WorkflowAgentState]) ->
 
     try:
         user_question = state["user_question"]
-        memory_conversation = state.memory_conversation        
+        memory_conversation = state.get("memory_conversation", [])        
         prompt = memory_decision_prompt(user_question=user_question, memory_conversation=memory_conversation)
         
         llm = state.get("llm")
