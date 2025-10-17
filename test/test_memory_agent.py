@@ -72,7 +72,6 @@ async def test_streaming_agent():
             language="vietnamese",
         ):
             if chunk:
-                print(chunk, end="", flush=True)
                 full_response += chunk
 
         print("\n\n=== END STREAMING ===")

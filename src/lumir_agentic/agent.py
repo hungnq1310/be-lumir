@@ -30,11 +30,13 @@ class AgentGraph:
         self,
         model_name: str,
         base_url: str,
+        api_key:str , 
         user_info: UserInfo,
     ):
         try:
             self.llm = ChatOpenAI(
                 model_name=model_name,
+                openai_api_key=api_key, 
                 temperature=0,
                 base_url=base_url,
             )
@@ -201,6 +203,7 @@ class AgentGraph:
                     import asyncio
                     if asyncio.iscoroutinefunction(get_history):
                         conversation_history = await get_history(user_id, session_id)
+                        print(conversation_history)
                     else:
                         conversation_history = get_history(user_id, session_id)
                     self.logger.info(f"   Loaded conversation history: {len(conversation_history)} messages")
@@ -259,5 +262,127 @@ class AgentGraph:
         except Exception as e:
             logger.error(f"Error in agent run_stream: {str(e)}")
             yield f"Error: {str(e)}"
-        
+    
+    def streaming_api(self,session_id: str = "",
+        model: str = os.getenv("STREAMING_MODEL", "gpt-4.1-nano-2025-04-14"),
+        messages: List[Dict] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 512,
+        top_p: float = 1.0,
+        stream: bool = True,
+        url: str = os.getenv("STREAMING_URL", "https://beproto.pythera.ai/windmill/stream-llm"),
+        timeout: int = 100
+        ):
+        payload = {
+            "session_id": session_id,
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "top_p": top_p,
+            "stream": stream,
+        }
 
+        # Headers
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+
+        self.logger.info(f"🚀 Sending request to: {url}")
+        self.logger.info(f"📝 Model: {model}")
+        self.logger.info(f"🔧 Session ID: {session_id}")
+        self.logger.info(
+            f"📊 Parameters: temperature={temperature}, max_tokens={max_tokens}, top_p={top_p}"
+        )
+        self.logger.info(f"💬 Số lượng messages: {len(messages)}")
+        self.logger.info("-" * 50)
+
+        try:
+            response = requests.post(url, json=payload, timeout=timeout)
+
+            return response.json()
+        except requests.RequestException as e:
+            self.logger.error(f"❌ Request failed: {e}")
+            return None
+
+    async def agent_response(
+        self,
+        user_question: str,
+        history: List[Dict[str, str]] = None,
+        user_profile: Dict[str, Any] = None,
+        language: str = "vietnamese",
+    ) -> AsyncGenerator[str, None]:
+        """Chạy agent ở chế độ streaming: thực thi graph, sau đó stream final LLM response."""
+        # if history is None:
+        #     history = []
+        if user_profile is None:
+            user_profile = {}
+
+        self.logger.info(
+            f"🚀 Running agent streaming with question: {user_question}"
+        )
+
+        try:
+            conversation_history = []
+            try:
+                user_id = self.user_info.user_id
+                session_id = self.user_info.session_id
+                if user_id and session_id:
+                    import asyncio
+                    if asyncio.iscoroutinefunction(get_history):
+                        conversation_history = await get_history(user_id, session_id)
+                        print(conversation_history)
+                    else:
+                        conversation_history = get_history(user_id, session_id)
+                    self.logger.info(f"   Loaded conversation history: {len(conversation_history)} messages")
+            except Exception as e:
+                self.logger.error(f"Error loading history in run_stream: {e}")
+                conversation_history = []
+                
+            initial_state: Dict[str, Any] = {
+                "user_question": user_question,
+                "conversation_history": conversation_history,
+                "user_profile": user_profile,
+                "current_step": "reasoning_step",
+                "is_complete": False,
+                "llm": self.llm,
+                "memory_conversation": None,
+                "language": language,
+                "user_info": self.user_info,
+            }
+
+            # Chạy workflow (dừng sau execute_tools)
+            self.logger.info("Running workflow (reasoning → execute_tools)...")
+            final_state = None
+            async for chunk in self.graph.astream(initial_state):
+                node_name = list(chunk.keys())[0]
+                node_output = chunk[node_name]
+                final_state = node_output
+                self.logger.info(f"   ✓ Node '{node_name}' completed")
+
+            self.logger.info("Starting LLM streaming generation...")
+            if final_state:
+                user_question = final_state.get("user_question", "")
+                conversation_history = final_state.get("conversation_history", [])
+                tool_calls_result = final_state.get("tools_called", [])
+                language_from_state = final_state.get("language", language)
+                # self.logger.info(f"   Tool Calls Result: {tool_calls_result}")
+                system_prompt = agent_generation_system_prompt(
+                    tool_result=[tool_calls_result],
+                    language=language_from_state,
+                    user_profile=user_profile,
+                )
+                
+                conversation = [
+                    {"role":"system","content":system_prompt},
+                ]
+                conversation.extend(conversation_history)
+                # Add user question
+                conversation.append({"role":"user","content":user_question})
+                response = self.streaming_api(messages = conversation)
+                yield response['result']['content']
+
+            else:
+                yield "No response generated"
+
+        except Exception as e:
+            logger.error(f"Error in agent run_stream: {str(e)}")
+            yield f"Error: {str(e)}"

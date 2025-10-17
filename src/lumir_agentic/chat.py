@@ -527,18 +527,15 @@ class ChatAgent:
         except Exception as e:
             logger.error(f"Error in run_sync: {str(e)}")
             return f"Error: {str(e)}"
-
-    DEFAULT_URL = "https://beproto.pythera.ai/windmill/stream-llm"
-    DEFAULT_MODEL = "gpt-4.1-nano-2025-04-14"
     
-    def api_response(self,session_id: str = "",
-        model: str = DEFAULT_MODEL,
+    def streaming_api(self,session_id: str = "",
+        model: str = os.getenv("STREAMING_MODEL", "gpt-4.1-nano-2025-04-14"),
         messages: List[Dict] = None,
         temperature: float = 0.7,
         max_tokens: int = 512,
         top_p: float = 1.0,
         stream: bool = True,
-        url: str = DEFAULT_URL,
+        url: str = os.getenv("STREAMING_URL", "https://beproto.pythera.ai/windmill/stream-llm"),
         timeout: int = 100
         ):
         payload = {
@@ -571,7 +568,7 @@ class ChatAgent:
             self.logger.error(f"❌ Request failed: {e}")
             return None
     
-    async def run_api(self, users_question: str,
+    async def chat_response(self, users_question: str,
                          history: List[Dict[str, str]] = None,
                          tool_calls: List[ToolCall] = None,
                          user_profile: Dict[str, str] = None,
@@ -611,13 +608,13 @@ class ChatAgent:
                 final_state = node_output
                 self.logger.info(f"   ✓ Node '{node_name}' completed")
             
+            
             # Now we have final_state with all data - stream the final LLM generation
             self.logger.info("Starting LLM streaming generation...")
             if final_state:
                 user_question = final_state.get("user_question", "")
                 conversation_history = final_state.get("memory_conversation", [])
-                # conversation_history = conversation_history[-top_conversations:]
-                # memory_context = final_state.get("memory_context", "")
+                
                 tool_calls_result = final_state.get("tool_calls", [])
                 language_from_state = final_state.get("language", language)
                 
@@ -634,7 +631,7 @@ class ChatAgent:
                 conversation.extend(conversation_history)
                 # Add user question
                 conversation.append({"role":"user","content":user_question})
-                response = self.api_response(messages = conversation)
+                response = self.streaming_api(messages = conversation)
                 yield response['result']['content']
 
             else:
