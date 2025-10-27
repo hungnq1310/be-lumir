@@ -1,0 +1,284 @@
+summary: BEQ v2 - WF & BEQ 7/10 - production (Optimized)
+description: Production-ready RAG system with connection pooling and optimized timeouts
+value:
+  modules:
+    - id: config_validator
+      value:
+        type: rawscript
+        content: '!inline inline_script_0.inline_script.py'
+        input_transforms:
+          raw_configs:
+            type: javascript
+            expr: flow_input.API_Config
+        assets: []
+        lock: '!inline inline_script_0.inline_script.lock'
+        language: python3
+    - id: processing_branch
+      summary: Main processing branch with upload detection
+      value:
+        type: branchone
+        branches:
+          - summary: ''
+            modules:
+              - id: document_processing_pipeline
+                value:
+                  type: flow
+                  input_transforms:
+                    batch_size_insert:
+                      type: javascript
+                      expr: flow_input.batch_size_insert
+                    config:
+                      type: javascript
+                      expr: results.config_validator
+                    session_id:
+                      type: javascript
+                      expr: flow_input.session_id
+                    tenant_name:
+                      type: javascript
+                      expr: '"temp"'
+                    upload_documents:
+                      type: javascript
+                      expr: flow_input.Upload
+                  path: f/rag/chunking
+              - id: search_service_upload
+                value:
+                  type: rawscript
+                  content: '!inline inline_script_1.inline_script.py'
+                  input_transforms:
+                    config:
+                      type: javascript
+                      expr: results.config_validator
+                    processing_result:
+                      type: javascript
+                      expr: results.document_processing_pipeline
+                    query:
+                      type: javascript
+                      expr: flow_input.Question
+                    session_id:
+                      type: javascript
+                      expr: flow_input.session_id
+                    tenant:
+                      type: javascript
+                      expr: '"temp"'
+                  assets: []
+                  lock: '!inline inline_script_1.inline_script.lock'
+                  language: python3
+            expr: |
+              flow_input.Upload && flow_input.Upload.length > 0
+            parallel: true
+            skip_failure: true
+        default:
+          - id: search_service_default
+            value:
+              type: rawscript
+              content: '!inline inline_script_2.inline_script.py'
+              input_transforms:
+                config:
+                  type: javascript
+                  expr: results.config_validator
+                query:
+                  type: javascript
+                  expr: flow_input.Question
+                session_id:
+                  type: javascript
+                  expr: flow_input.session_id
+                tenant:
+                  type: javascript
+                  expr: flow_input.tenant_name
+              assets: []
+              lock: '!inline inline_script_2.inline_script.lock'
+              language: python3
+    - id: reranking_service
+      value:
+        type: rawscript
+        content: '!inline inline_script_3.inline_script.py'
+        input_transforms:
+          config:
+            type: javascript
+            expr: results.config_validator
+          enable_rerank:
+            type: javascript
+            expr: flow_input.rerank
+          query:
+            type: javascript
+            expr: flow_input.Question
+          search_results:
+            type: javascript
+            expr: results.processing_branch
+        assets: []
+        lock: '!inline inline_script_3.inline_script.lock'
+        language: python3
+      continue_on_error: false
+    - id: context_service
+      value:
+        type: rawscript
+        content: '!inline inline_script_4.inline_script.py'
+        input_transforms:
+          search_results:
+            type: javascript
+            expr: results.reranking_service
+          upload_mode:
+            type: javascript
+            expr: flow_input.Upload && flow_input.Upload.length > 0
+        assets: []
+        lock: '!inline inline_script_4.inline_script.lock'
+        language: python3
+    - id: llm_service
+      value:
+        type: rawscript
+        content: '!inline inline_script_5.inline_script.py'
+        input_transforms:
+          callback_urls_config:
+            type: javascript
+            expr: flow_input.callback_urls
+          config:
+            type: javascript
+            expr: results.config_validator
+          correlation_id:
+            type: javascript
+            expr: flow_input.correlation_id
+          formatted_context:
+            type: javascript
+            expr: 'results.context_service[1]'
+          history:
+            type: javascript
+            expr: flow_input.history
+          language:
+            type: javascript
+            expr: flow_input.language
+          question:
+            type: javascript
+            expr: flow_input.Question
+          session_id:
+            type: javascript
+            expr: flow_input.session_id
+          workspace_path:
+            type: static
+            value: finops
+        assets: []
+        lock: '!inline inline_script_5.inline_script.lock'
+        language: python3
+schema:
+  $schema: 'https://json-schema.org/draft/2020-12/schema'
+  type: object
+  order:
+    - Question
+    - Upload
+    - session_id
+    - correlation_id
+    - language
+    - rerank
+    - history
+    - API_Config
+    - tenant_name
+    - batch_size_insert
+    - callback_urls
+  properties:
+    API_Config:
+      type: object
+      description: API service configuration for RAG system (Optimized)
+      order:
+        - rag_url
+        - docman_url
+        - api_key
+        - timeout
+        - connect_timeout
+      properties:
+        api_key:
+          type: string
+          description: API authentication key for secure access
+        connect_timeout:
+          type: integer
+          description: Connection timeout in seconds for faster failure detection
+          default: 3
+          maximum: 10
+          minimum: 1
+        docman_url:
+          type: string
+          description: Base URL for document management services
+          default: ''
+        rag_url:
+          type: string
+          description: 'Base URL for RAG services (search, embedding, context)'
+          default: ''
+          format: uri
+        timeout:
+          type: integer
+          description: Request timeout in seconds (optimized from 30s to 20s)
+          default: 20
+          maximum: 120
+          minimum: 5
+      required:
+        - rag_url
+        - docman_url
+    batch_size_insert:
+      type: integer
+      description: Batch size for chunk insertion operations (optimized for performance)
+      default: 32
+      maximum: 64
+      minimum: 1
+    callback_urls:
+      type: object
+      description: Callback URLs for WebSocket streaming and status updates
+    correlation_id:
+      type: string
+      description: >-
+        Correlation ID for tracking workflow execution and callback
+        notifications
+      default: ''
+      minLength: 1
+    history:
+      type: array
+      description: Conversation history for contextual responses
+      default: []
+      items:
+        type: object
+        properties:
+          content:
+            type: string
+          role:
+            type: string
+            enum:
+              - user
+              - assistant
+        required:
+          - role
+          - content
+    language:
+      type: string
+      description: Response language preference
+      default: Vietnamese
+      enum:
+        - Vietnamese
+        - English
+    Question:
+      type: string
+      description: User's question for the RAG system
+      default: ''
+      minLength: 1
+    rerank:
+      type: boolean
+      description: Enable intelligent search result reranking for improved relevance
+      default: false
+    session_id:
+      type: string
+      description: Unique session identifier for document grouping and context management
+      default: ''
+      minLength: 1
+    tenant_name:
+      type: string
+      description: Tenant identifier for multi-tenancy support and data isolation
+      default: temp
+      nullable: false
+    Upload:
+      type: array
+      description: List of document IDs for uploaded documents to process
+      default: []
+      items:
+        type: string
+  required:
+    - Question
+    - session_id
+    - correlation_id
+    - API_Config
+    - callback_urls
