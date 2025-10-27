@@ -1,0 +1,186 @@
+summary: lumir_v3
+description: ''
+value:
+  modules:
+    - id: a
+      summary: valid_input
+      value:
+        type: rawscript
+        content: '!inline valid_input.inline_script.py'
+        input_transforms:
+          x:
+            type: static
+            value: ''
+        assets: []
+        lock: '!inline valid_input.inline_script.lock'
+        language: python3
+    - id: e
+      summary: get_memory
+      value:
+        type: rawscript
+        content: '!inline get_memory.inline_script.py'
+        input_transforms:
+          session_id:
+            type: javascript
+            expr: flow_input.session_id
+          user_id:
+            type: javascript
+            expr: flow_input.user_id
+        assets: []
+        lock: '!inline get_memory.inline_script.lock'
+        language: python3
+      continue_on_error: false
+    - id: g
+      summary: ''
+      value:
+        type: branchone
+        branches:
+          - summary: ''
+            modules:
+              - id: h
+                summary: agent
+                value:
+                  type: rawscript
+                  content: '!inline agent.inline_script.py'
+                  input_transforms:
+                    account_id:
+                      type: javascript
+                      expr: flow_input.account_id
+                    birthday:
+                      type: javascript
+                      expr: flow_input.birthday
+                    full_name:
+                      type: javascript
+                      expr: flow_input.full_name
+                    history:
+                      type: javascript
+                      expr: results.e.data
+                    session_id:
+                      type: javascript
+                      expr: flow_input.session_id
+                    user_id:
+                      type: javascript
+                      expr: flow_input.user_id
+                    user_question:
+                      type: javascript
+                      expr: flow_input.user_question
+                  assets: []
+                  lock: '!inline agent.inline_script.lock'
+                  language: python3
+            expr: flow_input.agent==true
+            parallel: true
+            skip_failure: true
+        default:
+          - id: i
+            summary: chat
+            value:
+              type: rawscript
+              content: '!inline chat.inline_script.py'
+              input_transforms:
+                history:
+                  type: javascript
+                  expr: results.e.data
+                language:
+                  type: javascript
+                  expr: flow_input.language
+                session_id:
+                  type: javascript
+                  expr: flow_input.session_id
+                user_id:
+                  type: javascript
+                  expr: flow_input.user_id
+                user_name:
+                  type: javascript
+                  expr: flow_input.full_name
+                user_question:
+                  type: javascript
+                  expr: flow_input.user_question
+              assets: []
+              lock: '!inline chat.inline_script.lock'
+              language: python3
+    - id: k
+      summary: save_memory
+      value:
+        type: rawscript
+        content: '!inline save_memory.inline_script.py'
+        input_transforms:
+          assistant_message:
+            type: javascript
+            expr: results.g.response
+          session_id:
+            type: javascript
+            expr: flow_input.session_id
+          user_id:
+            type: javascript
+            expr: flow_input.user_id
+          user_message:
+            type: javascript
+            expr: flow_input.user_question
+        assets: []
+        lock: '!inline save_memory.inline_script.lock'
+        language: python3
+    - id: j
+      summary: checker
+      value:
+        type: rawscript
+        content: '!inline checker.inline_script.py'
+        input_transforms:
+          response:
+            type: javascript
+            expr: results.g.response
+          success:
+            type: static
+            value: ''
+        assets: []
+        lock: '!inline checker.inline_script.lock'
+        language: python3
+schema:
+  $schema: 'https://json-schema.org/draft/2020-12/schema'
+  type: object
+  order:
+    - full_name
+    - user_id
+    - account_id
+    - user_question
+    - session_id
+    - birthday
+    - language
+    - agent
+  properties:
+    account_id:
+      type: string
+      description: ''
+      default: ''
+    agent:
+      type: boolean
+      description: ''
+      default: false
+    birthday:
+      type: string
+      description: ''
+      default: ''
+    full_name:
+      type: string
+      description: ''
+      default: ''
+    language:
+      type: string
+      description: ''
+      default: vietnamese
+    session_id:
+      type: string
+      description: ''
+      default: ''
+      nullable: false
+    user_id:
+      type: string
+      description: ''
+      default: ''
+    user_question:
+      type: string
+      description: ''
+      default: ''
+      nullable: false
+  required:
+    - session_id
+    - user_question
