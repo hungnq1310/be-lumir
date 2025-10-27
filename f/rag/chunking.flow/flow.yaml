@@ -1,0 +1,135 @@
+summary: Combined Document Processing Pipeline - Single Module Flow
+description: >-
+  Streamlined flow handling validation, download, LangChain chunking, embedding,
+  and upload in one module
+value:
+  modules:
+    - id: document_pipeline
+      value:
+        type: rawscript
+        content: '!inline inline_script_0.inline_script.py'
+        input_transforms:
+          batch_size_insert:
+            type: javascript
+            expr: flow_input.batch_size_insert
+          config:
+            type: javascript
+            expr: flow_input.config
+          session_id:
+            type: javascript
+            expr: flow_input.session_id
+          tenant_name:
+            type: javascript
+            expr: flow_input.tenant_name
+          upload_documents:
+            type: javascript
+            expr: flow_input.upload_documents
+        assets: []
+        lock: '!inline inline_script_0.inline_script.lock'
+        language: python3
+schema:
+  $schema: 'https://json-schema.org/draft/2020-12/schema'
+  type: object
+  order:
+    - upload_documents
+    - session_id
+    - config
+    - batch_size_insert
+    - tenant_name
+  properties:
+    batch_size_insert:
+      type: integer
+      description: Batch size for chunk insertion operations
+      default: 8
+      maximum: 64
+      minimum: 1
+    config:
+      type: object
+      description: Configuration for document processing services
+      order:
+        - docman_api_base_url
+        - context_api_base_url
+        - chunk_api_base_url
+        - api_key
+        - api_timeout
+        - max_download_retries
+        - max_chunking_retries
+        - max_upload_retries
+        - chunk_size
+        - chunk_overlap
+      properties:
+        api_key:
+          type: string
+          description: API authentication key
+        api_timeout:
+          type: integer
+          description: API request timeout in seconds
+          default: 30
+          maximum: 120
+          minimum: 10
+        chunk_api_base_url:
+          type: string
+          description: Base URL for chunk storage API
+          default: ''
+        chunk_overlap:
+          type: integer
+          description: Overlap between consecutive chunks
+          default: 100
+          maximum: 500
+          minimum: 0
+        chunk_size:
+          type: integer
+          description: Size of text chunks for splitting
+          default: 500
+          maximum: 2000
+          minimum: 100
+        context_api_base_url:
+          type: string
+          description: Base URL for context processing API
+          default: ''
+        docman_api_base_url:
+          type: string
+          description: Base URL for document management API
+          default: ''
+        max_chunking_retries:
+          type: integer
+          description: Maximum retry attempts for chunking
+          default: 2
+          maximum: 5
+          minimum: 1
+        max_download_retries:
+          type: integer
+          description: Maximum retry attempts for downloads
+          default: 3
+          maximum: 5
+          minimum: 1
+        max_upload_retries:
+          type: integer
+          description: Maximum retry attempts for uploads
+          default: 3
+          maximum: 5
+          minimum: 1
+      required:
+        - docman_api_base_url
+        - context_api_base_url
+        - chunk_api_base_url
+    session_id:
+      type: string
+      description: Unique session identifier for document processing
+      default: ''
+      minLength: 1
+    tenant_name:
+      type: string
+      description: Tenant identifier for multi-tenant environments
+      default: default
+    upload_documents:
+      type: array
+      description: List of document IDs to process through the RAG pipeline
+      default: []
+      items:
+        type: string
+      minItems: 1
+  required:
+    - upload_documents
+    - session_id
+    - config
